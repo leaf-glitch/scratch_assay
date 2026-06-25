@@ -39,19 +39,19 @@ PERCENTILE_THRESHOLD = st.slider(
     "Variance Percentile",
     1,
     99,
-    35
+    25
 )
 
 KERNEL_SIZE = st.slider(
     "Morphology Kernel Size",
     3,
     25,
-    5,
+    15,
     step=2
 )
 
 # ======================================
-# local variance
+# LOCAL VARIANCE
 # ======================================
 
 def local_variance(img, size):
@@ -70,8 +70,9 @@ def local_variance(img, size):
 
     return mean_sq - mean**2
 
+
 # ======================================
-# analyze image
+# ANALYZE IMAGE
 # ======================================
 
 def analyze_image(
@@ -85,7 +86,7 @@ def analyze_image(
     img = tiff.imread(uploaded_file)
 
     if len(img.shape) == 3:
-        img = img[:,:,0]
+        img = img[:, :, 0]
 
     img = img.astype(np.float32)
 
@@ -97,12 +98,20 @@ def analyze_image(
         cv2.NORM_MINMAX
     ).astype(np.uint8)
 
+    # ==================================
+    # CLAHE
+    # ==================================
+
     clahe = cv2.createCLAHE(
         clipLimit=2.0,
-        tileGridSize=(8,8)
+        tileGridSize=(8, 8)
     )
 
     img2 = clahe.apply(img)
+
+    # ==================================
+    # LOCAL VARIANCE
+    # ==================================
 
     varmap = local_variance(
         img2,
@@ -117,66 +126,73 @@ def analyze_image(
         cv2.NORM_MINMAX
     ).astype(np.uint8)
 
+    # ==================================
+    # WOUND MASK
+    # ==================================
+
     thresh = np.percentile(
         varmap,
         percentile_threshold
     )
 
-     wound_mask = (
-         varmap < thresh
-     ).astype(np.uint8)
+    wound_mask = (
+        varmap < thresh
+    ).astype(np.uint8)
 
-     kernel = np.ones(
-         (kernel_size, kernel_size),
-         np.uint8
-     )
+    kernel = np.ones(
+        (kernel_size, kernel_size),
+        np.uint8
+    )
 
-     wound_mask = cv2.morphologyEx(
-         wound_mask,
-         cv2.MORPH_OPEN,
-         kernel
-     )
+    wound_mask = cv2.morphologyEx(
+        wound_mask,
+        cv2.MORPH_OPEN,
+        kernel
+    )
 
+    wound_mask = cv2.morphologyEx(
+        wound_mask,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
 
-     wound_mask = cv2.morphologyEx(
-         wound_mask,
-         cv2.MORPH_CLOSE,
-         kernel
-     )
+    # ==================================
+    # FILL HOLES
+    # ==================================
 
-# ==========================
-# Fill internal holes
-# ==========================
+    h_mask, w_mask = wound_mask.shape
 
-     h_mask, w_mask = wound_mask.shape
+    flood = (
+        wound_mask * 255
+    ).astype(np.uint8)
 
-     flood = (
-         wound_mask * 255
-     ).astype(np.uint8)
+    mask = np.zeros(
+        (h_mask + 2, w_mask + 2),
+        np.uint8
+    )
 
-     mask = np.zeros(
-         (h_mask + 2, w_mask + 2),
-         np.uint8
-     )
+    cv2.floodFill(
+        flood,
+        mask,
+        (0, 0),
+        255
+    )
 
-     cv2.floodFill(
-         flood,
-         mask,
-         (0, 0),
-         255
-     )
+    flood_inv = cv2.bitwise_not(
+        flood
+    )
 
-     flood_inv = cv2.bitwise_not(
-         flood
-     )
+    holes = (
+        flood_inv > 0
+    ).astype(np.uint8)
 
-     holes = (
-         flood_inv > 0
-     ).astype(np.uint8)
+    wound_mask = (
+        wound_mask | holes
+    ).astype(np.uint8)
 
-     wound_mask = (
-         wound_mask | holes
-     ).astype(np.uint8)
+    # ==================================
+    # FIND CENTRAL WOUND
+    # ==================================
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         wound_mask,
@@ -196,10 +212,9 @@ def analyze_image(
         width = stats[i, cv2.CC_STAT_WIDTH]
         area = stats[i, cv2.CC_STAT_AREA]
 
-        if x < center_x < x + width:
+        if x < center_x < (x + width):
 
             if area > best_score:
-
                 best_score = area
                 best_label = i
 
@@ -212,6 +227,20 @@ def analyze_image(
         final_mask[
             labels == best_label
         ] = 1
+
+    # ==================================
+    # OPTIONAL DILATION
+    # ==================================
+
+    final_mask = cv2.dilate(
+        final_mask,
+        np.ones((3, 3), np.uint8),
+        iterations=1
+    )
+
+    # ==================================
+    # WIDTH MEASUREMENT
+    # ==================================
 
     widths = []
 
@@ -244,6 +273,23 @@ def analyze_image(
             (right_edge, y)
         )
 
+    if len(widths) == 0:
+
+        result = {
+            "mean_width_px": np.nan,
+            "median_width_px": np.nan,
+            "mean_width_um": np.nan,
+            "median_width_um": np.nan,
+            "wound_area_px2": np.nan
+        }
+
+        overlay = cv2.cvtColor(
+            img,
+            cv2.COLOR_GRAY2BGR
+        )
+
+        return result, overlay
+
     widths = np.array(widths)
 
     mean_width_px = np.mean(widths)
@@ -267,50 +313,55 @@ def analyze_image(
             np.sum(final_mask)
     }
 
+    # ==================================
+    # OVERLAY
+    # ==================================
+
     overlay = cv2.cvtColor(
         img,
         cv2.COLOR_GRAY2BGR
     )
 
-    overlay[:,:,1] = np.maximum(
-        overlay[:,:,1],
+    overlay[:, :, 1] = np.maximum(
+        overlay[:, :, 1],
         final_mask * 255
     )
 
-    for x,y in left_points:
+    for x, y in left_points:
 
         cv2.circle(
             overlay,
-            (x,y),
+            (x, y),
             1,
-            (0,255,0),
+            (0, 255, 0),
             -1
         )
 
-    for x,y in right_points:
+    for x, y in right_points:
 
         cv2.circle(
             overlay,
-            (x,y),
+            (x, y),
             1,
-            (0,0,255),
+            (0, 0, 255),
             -1
         )
 
     return result, overlay
 
+
 # ======================================
-# upload
+# UPLOAD
 # ======================================
 
 uploaded_files = st.file_uploader(
-    "Upload TIFF images",
-    type=["tif","tiff"],
+    "Upload TIFF Images",
+    type=["tif", "tiff"],
     accept_multiple_files=True
 )
 
 # ======================================
-# run
+# RUN
 # ======================================
 
 if uploaded_files:
@@ -336,9 +387,7 @@ if uploaded_files:
 
     df = pd.DataFrame(results)
 
-    baseline = df.iloc[0][
-        "median_width_px"
-    ]
+    baseline = df.iloc[0]["median_width_px"]
 
     df["closure_percent"] = (
         (baseline - df["median_width_px"])
@@ -367,7 +416,7 @@ if uploaded_files:
     st.subheader("Closure Curve")
 
     fig, ax = plt.subplots(
-        figsize=(6,4)
+        figsize=(6, 4)
     )
 
     ax.plot(
@@ -376,25 +425,16 @@ if uploaded_files:
         marker="o"
     )
 
-    ax.set_ylabel(
-        "Closure (%)"
-    )
+    ax.set_ylabel("Closure (%)")
+    ax.set_xlabel("Image")
 
-    ax.set_xlabel(
-        "Image"
-    )
-
-    plt.xticks(
-        rotation=45
-    )
+    plt.xticks(rotation=45)
 
     plt.tight_layout()
 
     st.pyplot(fig)
 
-    st.subheader(
-        "Overlay Preview"
-    )
+    st.subheader("Overlay Preview")
 
     for name, overlay in overlays.items():
 
