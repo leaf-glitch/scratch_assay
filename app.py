@@ -122,69 +122,72 @@ def analyze_image(
         percentile_threshold
     )
 
-    # ---- 以下區塊已修正為正確的 4 空格縮排 ----
-    wound_mask = (
-        varmap < thresh
-    ).astype(np.uint8)
+    # 初步的低方差區域 (真傷口 + 平坦的細胞區)
+    initial_varmap_mask = varmap < thresh
 
-    kernel = np.ones(
-        (kernel_size, kernel_size),
-        np.uint8
-    )
+    h, w = initial_varmap_mask.shape
 
-    wound_mask = cv2.morphologyEx(
-        wound_mask,
-        cv2.MORPH_OPEN,
-        kernel
-    )
+    # ========================================================
+    # --- 優化邏輯：分離左右細胞群，精準鎖定中間傷口 ---
+    # ========================================================
 
-    wound_mask = cv2.morphologyEx(
-        wound_mask,
-        cv2.MORPH_CLOSE,
-        kernel
-    )
-
-    # ==========================
-    # Fill internal holes
-    # ==========================
-
-    h_mask, w_mask = wound_mask.shape
-
-    flood = (
-        wound_mask * 255
-    ).astype(np.uint8)
-
-    mask = np.zeros(
-        (h_mask + 2, w_mask + 2),
-        np.uint8
-    )
-
-    cv2.floodFill(
-        flood,
-        mask,
-        (0, 0),
-        255
-    )
-
-    flood_inv = cv2.bitwise_not(
-        flood
-    )
-
-    holes = (
-        flood_inv > 0
-    ).astype(np.uint8)
-
-    wound_mask = (
-        wound_mask | holes
-    ).astype(np.uint8)
-    # ----------------------------------------
-
+    # 1. 識別並分離左側細胞區塊
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-        wound_mask,
+        initial_varmap_mask.astype(np.uint8),
         connectivity=8
     )
+    left_comp_label = -1
+    for i in range(1, num_labels):
+        if stats[i, cv2.CC_STAT_LEFT] == 0 and stats[i, cv2.CC_STAT_AREA] > (h * w / 10):
+            left_comp_label = i
+            break
+    
+    left_cell_mask = np.zeros_like(initial_varmap_mask)
+    if left_comp_label != -1:
+        left_cell_mask[labels == left_comp_label] = 1
 
-    h, w = wound_mask.shape
+    # 2. 識別並分離右側細胞區塊
+    large_kernel_size = 31  # 大核心用來連接右側平坦細胞密集區
+    large_kernel = np.ones((large_kernel_size, large_kernel_size), np.uint8)
+    closed_mask = cv2.morphologyEx(initial_varmap_mask.astype(np.uint8), cv2.MORPH_CLOSE, large_kernel)
+    opened_mask = cv2.morphologyEx(closed_mask, cv2.MORPH_OPEN, large_kernel)
+    
+    num_labels_open, labels_open, stats_open, _ = cv2.connectedComponentsWithStats(
+        opened_mask,
+        connectivity=8
+    )
+    
+    right_cell_mask = np.zeros_like(initial_varmap_mask)
+    for i in range(1, num_labels_open):
+        if i != left_comp_label:
+            # 如果該連通域碰到右邊界，且面積夠大，判定為右側細胞群
+            if stats_open[i, cv2.CC_STAT_LEFT] + stats_open[i, cv2.CC_STAT_WIDTH] == w and stats_open[i, cv2.CC_STAT_AREA] > (h * w / 10):
+                right_cell_mask[labels_open == i] = 1
+                break
+
+    # 3. 定義真正的傷口區域：強制限定在「左細胞邊界」與「右細胞邊界」之間
+    wound_mask = np.zeros_like(initial_varmap_mask)
+    for y in range(h):
+        left_idxs = np.where(left_cell_mask[y, :])[0]
+        right_idxs = np.where(right_cell_mask[y, :])[0]
+        
+        if left_idxs.size > 0 and right_idxs.size > 0:
+            row_start = left_idxs.max()
+            row_end = right_idxs.min()
+            wound_mask[y, row_start:row_end] = 1
+
+    # 4. 孔洞補強：將落在中間傷口區內、因細胞高紋理導致的「非低方差孔洞」一起包進來
+    potential_holes_mask = (1 - initial_varmap_mask)
+    holes_in_wound = wound_mask & potential_holes_mask
+    wound_mask = wound_mask | holes_in_wound
+
+    # ========================================================
+
+    # 進行最終的連通域篩選
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        wound_mask.astype(np.uint8),
+        connectivity=8
+    )
 
     center_x = w // 2
 
@@ -247,6 +250,16 @@ def analyze_image(
 
     widths = np.array(widths)
 
+    # 預防防呆：若沒抓到任何寬度，回傳空數據
+    if widths.size == 0:
+        return {
+            "mean_width_px": 0,
+            "median_width_px": 0,
+            "mean_width_um": 0,
+            "median_width_um": 0,
+            "wound_area_px2": 0
+        }, cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
     mean_width_px = np.mean(widths)
     median_width_px = np.median(widths)
 
@@ -273,9 +286,10 @@ def analyze_image(
         cv2.COLOR_GRAY2BGR
     )
 
+    # 疊加半透明綠色傷口面具 (100為透明度，可自行調整上限255)
     overlay[:,:,1] = np.maximum(
         overlay[:,:,1],
-        final_mask * 255
+        (final_mask * 100).astype(np.uint8)
     )
 
     for x,y in left_points:
