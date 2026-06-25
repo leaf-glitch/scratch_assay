@@ -359,105 +359,105 @@ if uploaded_files:
 # Closure Curve
 # ======================================
 
-import re
-import io
+        import re
+        import io
 
-def extract_time(filename):
+        def extract_time(filename):
 
-    match = re.search(
-        r'(\d+)\s*h',
-        filename,
-        re.IGNORECASE
-    )
+            match = re.search(
+                r'(\d+)\s*h',
+                filename,
+                re.IGNORECASE
+            )
 
-    if match:
-        return int(match.group(1))
+            if match:
+                return int(match.group(1))
 
-    return None
+            return None
 
-df["time_hr"] = df["image"].apply(
-    extract_time
-)
-
-if df["time_hr"].notna().sum() > 0:
-
-    df = df.sort_values(
-        "time_hr"
-    )
-
-    st.subheader("Closure Curve")
-
-    fig, ax = plt.subplots(
-        figsize=(7,4)
-    )
-
-    ax.plot(
-        df["time_hr"],
-        df["closure_percent"],
-        marker="o"
-    )
-
-    ax.set_xlabel(
-        "Time (hr)"
-    )
-
-    ax.set_ylabel(
-        "Closure (%)"
-    )
-
-    ax.set_title(
-        "Wound Closure Curve"
-    )
-
-    ax.set_ylim(
-        0,
-        max(
-            100,
-            df["closure_percent"].max()*1.1
+        df["time_hr"] = df["image"].apply(
+            extract_time
         )
-    )
 
-    ax.grid(True)
+        if df["time_hr"].notna().sum() > 0:
 
-    st.pyplot(fig)
+            df = df.sort_values(
+                "time_hr"
+            )
 
-    buf = io.BytesIO()
+            st.subheader("Closure Curve")
 
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=300,
-        bbox_inches="tight"
-    )
+            fig, ax = plt.subplots(
+                figsize=(7,4)
+            )
 
-    st.download_button(
-        "Download Closure Curve",
-        buf.getvalue(),
-        file_name="closure_curve.png",
-        mime="image/png"
-    )
+            ax.plot(
+                df["time_hr"],
+                df["closure_percent"],
+                marker="o"
+            )
+
+            ax.set_xlabel(
+                "Time (hr)"
+            )
+
+            ax.set_ylabel(
+                "Closure (%)"
+            )
+
+            ax.set_title(
+                "Wound Closure Curve"
+            )
+
+            ax.set_ylim(
+                0,
+                max(
+                    100,
+                    df["closure_percent"].max()*1.1
+                )
+            )
+
+            ax.grid(True)
+
+            st.pyplot(fig)
+
+            buf = io.BytesIO()
+
+            fig.savefig(
+                buf,
+                format="png",
+                dpi=300,
+                bbox_inches="tight"
+            )
+
+            st.download_button(
+                "Download Closure Curve",
+                buf.getvalue(),
+                file_name="closure_curve.png",
+                mime="image/png"
+            )
 
 # ======================================
 # CSV download
 # ======================================
 
-csv = df.to_csv(
-    index=False
-)
+        csv = df.to_csv(
+            index=False
+        )
 
-st.download_button(
-    "Download CSV",
-    csv,
-    "results.csv",
-    "text/csv"
-)
+        st.download_button(
+            "Download CSV",
+            csv,
+            "results.csv",
+            "text/csv"
+        )
 
-st.subheader("Overlay Preview")
+        st.subheader("Overlay Preview")
 
-for name, overlay in overlays.items():
+        for name, overlay in overlays.items():
 
-    st.image(
-        overlay,
-        caption=name,
-        use_container_width=True
-    )
+            st.image(
+                overlay,
+                caption=name,
+                use_container_width=True
+            )
