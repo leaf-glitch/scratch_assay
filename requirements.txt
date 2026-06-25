@@ -6,3 +6,4 @@ tifffile
 scipy
 pillow
 matplotlib
+imagecodecs
