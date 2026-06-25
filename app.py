@@ -454,10 +454,10 @@ st.download_button(
 
 st.subheader("Overlay Preview")
 
-        for name, overlay in overlays.items():
+for name, overlay in overlays.items():
 
-            st.image(
-                overlay,
-                caption=name,
-                use_container_width=True
-            )
+    st.image(
+        overlay,
+        caption=name,
+        use_container_width=True
+    )
