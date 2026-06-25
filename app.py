@@ -348,12 +348,12 @@ if uploaded_files:
             * 100
         ).round(2)
 
-st.subheader("Closure")
+        st.subheader("Closure")
 
-st.dataframe(
-    df,
-    use_container_width=True
-)
+        st.dataframe(
+            df,
+            use_container_width=True
+        )
 
 # ======================================
 # Closure Curve
