@@ -348,25 +348,111 @@ if uploaded_files:
             * 100
         ).round(2)
 
-        st.subheader("Closure")
+       st.subheader("Closure")
 
-        st.dataframe(
-            df,
-            use_container_width=True
+st.dataframe(
+    df,
+    use_container_width=True
+)
+
+# ======================================
+# Closure Curve
+# ======================================
+
+import re
+import io
+
+def extract_time(filename):
+
+    match = re.search(
+        r'(\d+)\s*h',
+        filename,
+        re.IGNORECASE
+    )
+
+    if match:
+        return int(match.group(1))
+
+    return None
+
+df["time_hr"] = df["image"].apply(
+    extract_time
+)
+
+if df["time_hr"].notna().sum() > 0:
+
+    df = df.sort_values(
+        "time_hr"
+    )
+
+    st.subheader("Closure Curve")
+
+    fig, ax = plt.subplots(
+        figsize=(7,4)
+    )
+
+    ax.plot(
+        df["time_hr"],
+        df["closure_percent"],
+        marker="o"
+    )
+
+    ax.set_xlabel(
+        "Time (hr)"
+    )
+
+    ax.set_ylabel(
+        "Closure (%)"
+    )
+
+    ax.set_title(
+        "Wound Closure Curve"
+    )
+
+    ax.set_ylim(
+        0,
+        max(
+            100,
+            df["closure_percent"].max()*1.1
         )
+    )
 
-        csv = df.to_csv(
-            index=False
-        )
+    ax.grid(True)
 
-        st.download_button(
-            "Download CSV",
-            csv,
-            "results.csv",
-            "text/csv"
-        )
+    st.pyplot(fig)
 
-        st.subheader("Overlay Preview")
+    buf = io.BytesIO()
+
+    fig.savefig(
+        buf,
+        format="png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    st.download_button(
+        "Download Closure Curve",
+        buf.getvalue(),
+        file_name="closure_curve.png",
+        mime="image/png"
+    )
+
+# ======================================
+# CSV download
+# ======================================
+
+csv = df.to_csv(
+    index=False
+)
+
+st.download_button(
+    "Download CSV",
+    csv,
+    "results.csv",
+    "text/csv"
+)
+
+st.subheader("Overlay Preview")
 
         for name, overlay in overlays.items():
 
