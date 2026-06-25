@@ -117,66 +117,66 @@ def analyze_image(
         cv2.NORM_MINMAX
     ).astype(np.uint8)
 
-   thresh = np.percentile(
-       varmap,
-       percentile_threshold
-   )
-
-    wound_mask = (
-        varmap < thresh
-    ).astype(np.uint8)
-
-    kernel = np.ones(
-        (kernel_size, kernel_size),
-        np.uint8
+    thresh = np.percentile(
+        varmap,
+        percentile_threshold
     )
 
-    wound_mask = cv2.morphologyEx(
-        wound_mask,
-        cv2.MORPH_OPEN,
-        kernel
-    )
+     wound_mask = (
+         varmap < thresh
+     ).astype(np.uint8)
+
+     kernel = np.ones(
+         (kernel_size, kernel_size),
+         np.uint8
+     )
+
+     wound_mask = cv2.morphologyEx(
+         wound_mask,
+         cv2.MORPH_OPEN,
+         kernel
+     )
 
 
-    wound_mask = cv2.morphologyEx(
-        wound_mask,
-        cv2.MORPH_CLOSE,
-        kernel
-    )
+     wound_mask = cv2.morphologyEx(
+         wound_mask,
+         cv2.MORPH_CLOSE,
+         kernel
+     )
 
 # ==========================
 # Fill internal holes
 # ==========================
 
-    h_mask, w_mask = wound_mask.shape
+     h_mask, w_mask = wound_mask.shape
 
-    flood = (
-        wound_mask * 255
-    ).astype(np.uint8)
+     flood = (
+         wound_mask * 255
+     ).astype(np.uint8)
 
-    mask = np.zeros(
-        (h_mask + 2, w_mask + 2),
-        np.uint8
-    )
+     mask = np.zeros(
+         (h_mask + 2, w_mask + 2),
+         np.uint8
+     )
 
-    cv2.floodFill(
-        flood,
-        mask,
-        (0, 0),
-        255
-    )
+     cv2.floodFill(
+         flood,
+         mask,
+         (0, 0),
+         255
+     )
 
-    flood_inv = cv2.bitwise_not(
-        flood
-    )
+     flood_inv = cv2.bitwise_not(
+         flood
+     )
 
-    holes = (
-        flood_inv > 0
-    ).astype(np.uint8)
+     holes = (
+         flood_inv > 0
+     ).astype(np.uint8)
 
-    wound_mask = (
-        wound_mask | holes
-    ).astype(np.uint8)
+     wound_mask = (
+         wound_mask | holes
+     ).astype(np.uint8)
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         wound_mask,
