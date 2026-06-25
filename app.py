@@ -6,7 +6,8 @@ import tifffile as tiff
 from scipy.ndimage import uniform_filter
 from PIL import Image
 import io
-
+import re
+import matplotlib.pyplot as plt
 # ======================================
 # PAGE
 # ======================================
@@ -359,8 +360,7 @@ if uploaded_files:
 # Closure Curve
 # ======================================
 
-        import re
-        import io
+        
 
         def extract_time(filename):
 
