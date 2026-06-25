@@ -2,8 +2,7 @@ streamlit
 opencv-python-headless
 numpy
 pandas
-tifffile
-scipy
-pillow
 matplotlib
+scipy
+tifffile
 imagecodecs
