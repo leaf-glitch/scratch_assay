@@ -4,62 +4,57 @@ import numpy as np
 import pandas as pd
 import tifffile as tiff
 from scipy.ndimage import uniform_filter
-from PIL import Image
-import io
-import re
 import matplotlib.pyplot as plt
+
 # ======================================
 # PAGE
 # ======================================
 
 st.set_page_config(
-    page_title="MSC Wound Healing Analyzer",
+    page_title="Scratch Assay Analyzer",
     layout="wide"
 )
 
-st.title("MSC Wound Healing Analyzer")
+st.title("Scratch Assay Analyzer")
 
 # ======================================
-# SETTINGS
+# USER SETTINGS
 # ======================================
 
-pixel_size = st.number_input(
-    "Pixel size (μm/pixel)",
-    min_value=0.0001,
+PIXEL_SIZE = st.number_input(
+    "Pixel Size (um/pixel)",
     value=1.3886,
-    step=0.0001,
     format="%.4f"
 )
 
-LOCAL_WINDOW = st.number_input(
-    "Local variance window",
-    value=21,
+LOCAL_WINDOW = st.slider(
+    "Local Variance Window",
+    5,
+    101,
+    31,
     step=2
 )
 
-MIN_WOUND_WIDTH = st.number_input(
-    "Minimum wound width (pixel)",
-    value=50
+PERCENTILE_THRESHOLD = st.slider(
+    "Variance Percentile",
+    1,
+    99,
+    35
 )
 
-CENTER_SEARCH_RATIO = st.slider(
-    "Center search ratio",
-    0.1,
-    1.0,
-    0.5
-)
-
-uploaded_files = st.file_uploader(
-    "Upload TIFF files",
-    type=["tif", "tiff"],
-    accept_multiple_files=True
+KERNEL_SIZE = st.slider(
+    "Morphology Kernel Size",
+    3,
+    25,
+    9,
+    step=2
 )
 
 # ======================================
-# FUNCTIONS
+# local variance
 # ======================================
 
-def local_variance(img, size=21):
+def local_variance(img, size):
 
     img = img.astype(np.float32)
 
@@ -75,19 +70,22 @@ def local_variance(img, size=21):
 
     return mean_sq - mean**2
 
+# ======================================
+# analyze image
+# ======================================
 
 def analyze_image(
     uploaded_file,
     pixel_size,
     local_window,
-    min_wound_width,
-    center_search_ratio
+    percentile_threshold,
+    kernel_size
 ):
 
     img = tiff.imread(uploaded_file)
 
     if len(img.shape) == 3:
-        img = img[:, :, 0]
+        img = img[:,:,0]
 
     img = img.astype(np.float32)
 
@@ -97,24 +95,14 @@ def analyze_image(
         0,
         255,
         cv2.NORM_MINMAX
-    )
-
-    img = img.astype(np.uint8)
-
-    # --------------------------
-    # CLAHE
-    # --------------------------
+    ).astype(np.uint8)
 
     clahe = cv2.createCLAHE(
         clipLimit=2.0,
-        tileGridSize=(8, 8)
+        tileGridSize=(8,8)
     )
 
     img2 = clahe.apply(img)
-
-    # --------------------------
-    # variance
-    # --------------------------
 
     varmap = local_variance(
         img2,
@@ -127,22 +115,68 @@ def analyze_image(
         0,
         255,
         cv2.NORM_MINMAX
-    )
+    ).astype(np.uint8)
 
-    varmap = varmap.astype(np.uint8)
-
-    varmap = cv2.medianBlur(
+    thresh = np.percentile(
         varmap,
-        5
+        percentile_threshold
     )
 
-    h, w = varmap.shape
+    wound_mask = (
+        varmap < thresh
+    ).astype(np.uint8)
 
-    center = w // 2
-
-    search_half = int(
-        w * center_search_ratio / 2
+    kernel = np.ones(
+        (kernel_size, kernel_size),
+        np.uint8
     )
+
+    wound_mask = cv2.morphologyEx(
+        wound_mask,
+        cv2.MORPH_OPEN,
+        kernel
+    )
+
+    wound_mask = cv2.morphologyEx(
+        wound_mask,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        wound_mask,
+        connectivity=8
+    )
+
+    h, w = wound_mask.shape
+
+    center_x = w // 2
+
+    best_label = None
+    best_score = 0
+
+    for i in range(1, num_labels):
+
+        x = stats[i, cv2.CC_STAT_LEFT]
+        width = stats[i, cv2.CC_STAT_WIDTH]
+        area = stats[i, cv2.CC_STAT_AREA]
+
+        if x < center_x < x + width:
+
+            if area > best_score:
+
+                best_score = area
+                best_label = i
+
+    final_mask = np.zeros_like(
+        wound_mask
+    )
+
+    if best_label is not None:
+
+        final_mask[
+            labels == best_label
+        ] = 1
 
     widths = []
 
@@ -151,63 +185,21 @@ def analyze_image(
 
     for y in range(h):
 
-        row = varmap[y]
+        row = final_mask[y]
 
-        threshold = np.percentile(
-            row,
-            70
-        )
-
-        cell = row > threshold
-
-        kernel = np.ones(5)
-
-        cell = np.convolve(
-            cell.astype(np.uint8),
-            kernel,
-            mode="same"
-        )
-
-        cell = cell >= 5
-
-        left_region = cell[
-            center-search_half:center
-        ]
-
-        right_region = cell[
-            center:center+search_half
-        ]
-
-        left_idx = np.where(
-            left_region
+        wound_idx = np.where(
+            row > 0
         )[0]
 
-        right_idx = np.where(
-            right_region
-        )[0]
-
-        if len(left_idx) == 0:
+        if len(wound_idx) < 20:
             continue
 
-        if len(right_idx) == 0:
-            continue
+        left_edge = wound_idx.min()
+        right_edge = wound_idx.max()
 
-        left_edge = (
-            center-search_half
-            + left_idx.max()
+        widths.append(
+            right_edge - left_edge
         )
-
-        right_edge = (
-            center
-            + right_idx.min()
-        )
-
-        width = right_edge - left_edge
-
-        if width < min_wound_width:
-            continue
-
-        widths.append(width)
 
         left_points.append(
             (left_edge, y)
@@ -219,245 +211,161 @@ def analyze_image(
 
     widths = np.array(widths)
 
-    if len(widths) == 0:
-        return None, None
-
     mean_width_px = np.mean(widths)
-
     median_width_px = np.median(widths)
 
-    wound_area_px = np.sum(widths)
+    result = {
+
+        "mean_width_px":
+            mean_width_px,
+
+        "median_width_px":
+            median_width_px,
+
+        "mean_width_um":
+            mean_width_px * pixel_size,
+
+        "median_width_um":
+            median_width_px * pixel_size,
+
+        "wound_area_px2":
+            np.sum(final_mask)
+    }
 
     overlay = cv2.cvtColor(
         img,
         cv2.COLOR_GRAY2BGR
     )
 
-    for x, y in left_points:
+    overlay[:,:,1] = np.maximum(
+        overlay[:,:,1],
+        final_mask * 255
+    )
+
+    for x,y in left_points:
 
         cv2.circle(
             overlay,
-            (x, y),
+            (x,y),
             1,
-            (0, 255, 0),
+            (0,255,0),
             -1
         )
 
-    for x, y in right_points:
+    for x,y in right_points:
 
         cv2.circle(
             overlay,
-            (x, y),
+            (x,y),
             1,
-            (0, 0, 255),
+            (0,0,255),
             -1
         )
-
-    result = {
-
-        "image": uploaded_file.name,
-
-        "mean_width_px":
-            round(mean_width_px, 2),
-
-        "median_width_px":
-            round(median_width_px, 2),
-
-        "mean_width_um":
-            round(
-                mean_width_px
-                * pixel_size,
-                2
-            ),
-
-        "median_width_um":
-            round(
-                median_width_px
-                * pixel_size,
-                2
-            ),
-
-        "wound_area_px2":
-            int(wound_area_px)
-    }
 
     return result, overlay
 
 # ======================================
-# ANALYSIS
+# upload
+# ======================================
+
+uploaded_files = st.file_uploader(
+    "Upload TIFF images",
+    type=["tif","tiff"],
+    accept_multiple_files=True
+)
+
+# ======================================
+# run
 # ======================================
 
 if uploaded_files:
 
-    if st.button("Analyze"):
+    results = []
+    overlays = {}
 
-        results = []
+    for file in uploaded_files:
 
-        overlays = {}
+        result, overlay = analyze_image(
+            file,
+            PIXEL_SIZE,
+            LOCAL_WINDOW,
+            PERCENTILE_THRESHOLD,
+            KERNEL_SIZE
+        )
 
-        progress = st.progress(0)
+        result["image"] = file.name
 
-        for i, file in enumerate(
-            uploaded_files
-        ):
+        results.append(result)
 
-            result, overlay = analyze_image(
-                file,
-                pixel_size,
-                LOCAL_WINDOW,
-                MIN_WOUND_WIDTH,
-                CENTER_SEARCH_RATIO
-            )
+        overlays[file.name] = overlay
 
-            if result is not None:
+    df = pd.DataFrame(results)
 
-                results.append(result)
+    baseline = df.iloc[0][
+        "median_width_px"
+    ]
 
-                overlays[
-                    file.name
-                ] = overlay
+    df["closure_percent"] = (
+        (baseline - df["median_width_px"])
+        / baseline
+        * 100
+    )
 
-            progress.progress(
-                (i + 1)
-                / len(uploaded_files)
-            )
+    st.subheader("Results")
 
-        df = pd.DataFrame(results)
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
 
-        st.subheader("Results")
+    csv = df.to_csv(
+        index=False
+    )
 
-        st.dataframe(
-            df,
+    st.download_button(
+        "Download CSV",
+        csv,
+        file_name="results.csv",
+        mime="text/csv"
+    )
+
+    st.subheader("Closure Curve")
+
+    fig, ax = plt.subplots(
+        figsize=(6,4)
+    )
+
+    ax.plot(
+        df["image"],
+        df["closure_percent"],
+        marker="o"
+    )
+
+    ax.set_ylabel(
+        "Closure (%)"
+    )
+
+    ax.set_xlabel(
+        "Image"
+    )
+
+    plt.xticks(
+        rotation=45
+    )
+
+    plt.tight_layout()
+
+    st.pyplot(fig)
+
+    st.subheader(
+        "Overlay Preview"
+    )
+
+    for name, overlay in overlays.items():
+
+        st.write(name)
+
+        st.image(
+            overlay,
             use_container_width=True
         )
-
-        baseline_image = st.selectbox(
-            "Select baseline image (0 hr)",
-            df["image"]
-        )
-
-        baseline = df.loc[
-            df["image"]
-            == baseline_image,
-            "median_width_px"
-        ].iloc[0]
-
-        df["closure_percent"] = (
-            (baseline
-             - df["median_width_px"])
-            / baseline
-            * 100
-        ).round(2)
-
-        st.subheader("Closure")
-
-        st.dataframe(
-            df,
-            use_container_width=True
-        )
-
-# ======================================
-# Closure Curve
-# ======================================
-
-        
-
-        def extract_time(filename):
-
-            match = re.search(
-                r'(\d+)\s*h',
-                filename,
-                re.IGNORECASE
-            )
-
-            if match:
-                return int(match.group(1))
-
-            return None
-
-        df["time_hr"] = df["image"].apply(
-            extract_time
-        )
-
-        if df["time_hr"].notna().sum() > 0:
-
-            df = df.sort_values(
-                "time_hr"
-            )
-
-            st.subheader("Closure Curve")
-
-            fig, ax = plt.subplots(
-                figsize=(7,4)
-            )
-
-            ax.plot(
-                df["time_hr"],
-                df["closure_percent"],
-                marker="o"
-            )
-
-            ax.set_xlabel(
-                "Time (hr)"
-            )
-
-            ax.set_ylabel(
-                "Closure (%)"
-            )
-
-            ax.set_title(
-                "Wound Closure Curve"
-            )
-
-            ax.set_ylim(
-                0,
-                max(
-                    100,
-                    df["closure_percent"].max()*1.1
-                )
-            )
-
-            ax.grid(True)
-
-            st.pyplot(fig)
-
-            buf = io.BytesIO()
-
-            fig.savefig(
-                buf,
-                format="png",
-                dpi=300,
-                bbox_inches="tight"
-            )
-
-            st.download_button(
-                "Download Closure Curve",
-                buf.getvalue(),
-                file_name="closure_curve.png",
-                mime="image/png"
-            )
-
-# ======================================
-# CSV download
-# ======================================
-
-        csv = df.to_csv(
-            index=False
-        )
-
-        st.download_button(
-            "Download CSV",
-            csv,
-            "results.csv",
-            "text/csv"
-        )
-
-        st.subheader("Overlay Preview")
-
-        for name, overlay in overlays.items():
-
-            st.image(
-                overlay,
-                caption=name,
-                use_container_width=True
-            )
