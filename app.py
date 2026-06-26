@@ -584,109 +584,109 @@ if uploaded_files:
 # ANALYSIS PARAMETERS
 # =====================================================
 
-st.subheader("Analysis Parameters")
+    st.subheader("Analysis Parameters")
 
-parameter_df = pd.DataFrame({
+    parameter_df = pd.DataFrame({
 
-    "Parameter":[
-        "Pixel Size (µm/pixel)",
-        "Edge Threshold Percentile",
-        "Morphology Kernel Size",
-        "Minimum Wound Width (pixel)"
-    ],
+        "Parameter":[
+            "Pixel Size (µm/pixel)",
+            "Edge Threshold Percentile",
+            "Morphology Kernel Size",
+            "Minimum Wound Width (pixel)"
+        ],
 
-    "Value":[
-        pixel_size,
-        sobel_threshold,
-        kernel_size,
-        minimum_width
-    ]
+        "Value":[
+            pixel_size,
+            sobel_threshold,
+            kernel_size,
+            minimum_width
+        ]
 
-})
+    })
 
-st.dataframe(
-    parameter_df,
-    use_container_width=True,
-    hide_index=True
-)
+    st.dataframe(
+        parameter_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
 # =====================================================
 # SUMMARY
 # =====================================================
 
-st.subheader("Summary")
+    st.subheader("Summary")
 
-col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-with col1:
+    with col1:
 
-    st.metric(
-        "Images",
-        len(df)
-    )
+        st.metric(
+            "Images",
+            len(df)
+        )
 
-with col2:
+    with col2:
 
-    st.metric(
-        "Initial Width (µm)",
-        f"{df.iloc[0]['median_width_um']:.1f}"
-    )
+        st.metric(
+            "Initial Width (µm)",
+            f"{df.iloc[0]['median_width_um']:.1f}"
+        )
 
-with col3:
+    with col3:
 
-    st.metric(
-        "Final Closure (%)",
-        f"{df.iloc[-1]['closure_percent']:.1f}"
-    )
-
+        st.metric(
+            "Final Closure (%)",
+            f"{df.iloc[-1]['closure_percent']:.1f}"
+        )
+    
 # =====================================================
 # DOWNLOAD OVERLAY IMAGES
 # =====================================================
 
-import zipfile
+    import zipfile
 
-zip_buffer = BytesIO()
+    zip_buffer = BytesIO()
 
-with zipfile.ZipFile(
-    zip_buffer,
-    "w",
-    zipfile.ZIP_DEFLATED
-) as zip_file:
+    with zipfile.ZipFile(
+        zip_buffer,
+        "w",
+        zipfile.ZIP_DEFLATED
+    ) as zip_file:
 
-    for name, overlay in overlays.items():
+        for name, overlay in overlays.items():
 
-        success, png = cv2.imencode(
-            ".png",
-            overlay
-        )
-
-        if success:
-
-            zip_file.writestr(
-                name.replace(".tif", "_overlay.png").replace(".tiff","_overlay.png"),
-                png.tobytes()
+            success, png = cv2.imencode(
+                ".png",
+                overlay
             )
 
-zip_buffer.seek(0)
+            if success:
 
-st.download_button(
+                zip_file.writestr(
+                    name.replace(".tif", "_overlay.png").replace(".tiff","_overlay.png"),
+                    png.tobytes()
+                )
 
-    "Download All Overlay Images",
+    zip_buffer.seek(0)
 
-    zip_buffer,
+    st.download_button(
 
-    file_name="overlay_images.zip",
+        "Download All Overlay Images",
 
-    mime="application/zip"
+        zip_buffer,
 
-)
+        file_name="overlay_images.zip",
+    
+        mime="application/zip"
+
+    )
 
 # =====================================================
 # FOOTER
 # =====================================================
 
-st.divider()
+    st.divider()
 
-st.caption(
-    "Scratch Assay Analyzer | Wound Healing Assay"
-)
+    st.caption(
+        "Scratch Assay Analyzer | Wound Healing Assay"
+    )
