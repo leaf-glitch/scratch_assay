@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 st.title("Scratch Assay Analyzer")
-
+left_col, right_col = st.columns([1, 1.4])
 st.write(
     "Automatic wound healing assay analysis based on image segmentation."
 )
@@ -27,41 +27,41 @@ st.write(
 # =====================================================
 # USER PARAMETERS
 # =====================================================
+with left_col:
+    pixel_size = st.number_input(
+        "Pixel size (µm/pixel)",
+        min_value=0.0001,
+        value=1.3886,
+        format="%.4f"
+    )
 
-pixel_size = st.number_input(
-    "Pixel size (µm/pixel)",
-    min_value=0.0001,
-    value=1.3886,
-    format="%.4f"
-)
+    sobel_threshold = st.slider(
+        "Edge threshold percentile",
+        50,
+        99,
+        80
+    )
 
-sobel_threshold = st.slider(
-    "Edge threshold percentile",
-    50,
-    99,
-    80
-)
+    kernel_size = st.slider(
+        "Morphology kernel size",
+        3,
+        21,
+        7,
+        step=2
+    )
 
-kernel_size = st.slider(
-    "Morphology kernel size",
-    3,
-    21,
-    7,
-    step=2
-)
+    minimum_width = st.slider(
+        "Minimum wound width (pixel)",
+        10,
+        500,
+        50
+    )
 
-minimum_width = st.slider(
-    "Minimum wound width (pixel)",
-    10,
-    500,
-    50
-)
-
-uploaded_files = st.file_uploader(
-    "Upload TIFF images",
-    type=["tif", "tiff"],
-    accept_multiple_files=True
-)
+    uploaded_files = st.file_uploader(
+        "Upload TIFF images",
+        type=["tif", "tiff"],
+        accept_multiple_files=True
+    )
 
 # =====================================================
 # IMAGE PREPROCESS
@@ -557,29 +557,29 @@ if uploaded_files:
 # =====================================================
 # OVERLAY
 # =====================================================
+    with right_col:
+        st.subheader("Overlay Preview")
 
-    st.subheader("Overlay Preview")
+        cols = st.columns(2)
 
-    cols = st.columns(2)
+        i = 0
 
-    i = 0
+        for name, overlay in overlays.items():
 
-    for name, overlay in overlays.items():
-
-        rgb = cv2.cvtColor(
-            overlay,
-            cv2.COLOR_BGR2RGB
-        )
-
-        with cols[i % 2]:
-
-            st.image(
-                rgb,
-                caption=name,
-                use_container_width=True
+            rgb = cv2.cvtColor(
+                overlay,
+                cv2.COLOR_BGR2RGB
             )
 
-        i += 1
+            with cols[i % 2]:
+
+                st.image(
+                    rgb,
+                    caption=name,
+                    use_container_width=True
+                )
+
+            i += 1
 # =====================================================
 # ANALYSIS PARAMETERS
 # =====================================================
