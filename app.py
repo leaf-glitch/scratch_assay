@@ -130,9 +130,13 @@ def analyze_image(
     # WOUND MASK
     # ==================================
 
-    thresh = np.percentile(
-        varmap,
-        percentile_threshold
+    blur = cv2.GaussianBlur(varmap, (5,5), 0)
+
+    _, wound_mask = cv2.threshold(
+        blur,
+        0,
+        1,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
 
     wound_mask = (
